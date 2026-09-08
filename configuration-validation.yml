@@ -53,7 +53,7 @@ name: Configuration Validation
 on:
   push:
     branches:
-      - dev
+      - main
   workflow_dispatch:      # also allows manual runs from the Actions tab
 
 jobs:
