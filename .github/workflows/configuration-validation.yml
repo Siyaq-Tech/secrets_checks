@@ -299,31 +299,39 @@ jobs:
             wait "${TEE_PID}" 2>/dev/null || true
           exit "${STATUS}"
 
-      - name: Send report to Zoho Cliq
+            - name: Send report to Zoho Cliq
         if: always()
         env:
-          ZOHO_CLIQ_WEBHOOK_URL: ${{ secrets.ZOHO_CLIQ_WEBHOOK_URL }}
+          CLIQ_WEBHOOK_TOKEN: ${{ secrets.CLIQ_WEBHOOK_URL }}
+          CLIQ_BOT_NAME: "secretcheck"
           ENVIRONMENT: ${{ inputs.environment }}
           JOB_STATUS: ${{ steps.validate.outcome }}
         run: |
           set -euo pipefail
+
           REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
-          if [[ -z "${ZOHO_CLIQ_WEBHOOK_URL:-}" ]]; then
-            echo "ZOHO_CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
+
+          if [[ -z "${CLIQ_WEBHOOK_TOKEN:-}" ]]; then
+            echo "CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
             exit 0
           fi
+
           if [[ ! -f "${REPORT_FILE}" ]]; then
             echo "No report file found — skipping Zoho notification."
             exit 0
           fi
+
+          WEBHOOK_URL="https://cliq.zoho.com/api/v2/bots/${CLIQ_BOT_NAME}/incoming?zapikey=${CLIQ_WEBHOOK_TOKEN}"
+
           ICON="✅"
           [[ "${JOB_STATUS}" != "success" ]] && ICON="❌"
+
           TITLE="${ICON} Configuration Validation — ${ENVIRONMENT} (${GITHUB_REPOSITORY})"
-          # jq -Rs slurps the raw report file as one string and safely
-          # JSON-encodes it (handles newlines/quotes) — no manual escaping.
+
           BODY=$(jq -Rs --arg title "${TITLE}" \
             '{ text: ($title + "\n```\n" + . + "\n```") }' "${REPORT_FILE}")
-          curl -sS -X POST "${ZOHO_CLIQ_WEBHOOK_URL}" \
+
+          curl -sS -X POST "${WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"
 
