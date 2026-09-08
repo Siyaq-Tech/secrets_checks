@@ -70,6 +70,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate secrets and variables
+        id: validate
         env:
           ENV_EXAMPLE_PATH: ${{ inputs.env-example-path }}
           PROD_YML_PATHS:   ${{ inputs.prod-yml-paths }}
@@ -78,6 +79,12 @@ jobs:
         
         run: |
           set -euo pipefail
+           # ── Capture everything this step prints, so the next step can
+          #    post the exact same report to Zoho Cliq. TEE_PID is waited
+          #    on at the very end so the file is never truncated.
+          REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
+          exec > >(tee "${REPORT_FILE}") 2>&1
+          TEE_PID=$!
 
           FAILED=false
           REPO="${GITHUB_REPOSITORY}"
@@ -271,17 +278,55 @@ jobs:
             fi
           fi
 
-          # ── Final result ────────────────────────────────────────────────────
+                    # ── Final result ────────────────────────────────────────────────────
           echo
           echo "${HR}"
+          STATUS=0
           if [[ "${FAILED}" == "true" ]]; then
             echo "  ✗ FAILED — required configuration is missing"
             echo "${HR}"
-            if [[ "${FAIL_ON_MISSING}" == "true" ]]; then exit 1; fi
+            [[ "${FAIL_ON_MISSING}" == "true" ]] && STATUS=1
           else
             echo "  ✓ PASSED — all required configuration is present"
             echo "${HR}"
           fi
+
+          # Make sure the tee subshell has flushed the file before we exit,
+          # otherwise the notify step below can read a truncated report.
+          wait "${TEE_PID}" 2>/dev/null || true
+          exit "${STATUS}"
+
+            wait "${TEE_PID}" 2>/dev/null || true
+          exit "${STATUS}"
+
+      - name: Send report to Zoho Cliq
+        if: always()
+        env:
+          ZOHO_CLIQ_WEBHOOK_URL: ${{ secrets.ZOHO_CLIQ_WEBHOOK_URL }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          JOB_STATUS: ${{ steps.validate.outcome }}
+        run: |
+          set -euo pipefail
+          REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
+          if [[ -z "${ZOHO_CLIQ_WEBHOOK_URL:-}" ]]; then
+            echo "ZOHO_CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
+            exit 0
+          fi
+          if [[ ! -f "${REPORT_FILE}" ]]; then
+            echo "No report file found — skipping Zoho notification."
+            exit 0
+          fi
+          ICON="✅"
+          [[ "${JOB_STATUS}" != "success" ]] && ICON="❌"
+          TITLE="${ICON} Configuration Validation — ${ENVIRONMENT} (${GITHUB_REPOSITORY})"
+          # jq -Rs slurps the raw report file as one string and safely
+          # JSON-encodes it (handles newlines/quotes) — no manual escaping.
+          BODY=$(jq -Rs --arg title "${TITLE}" \
+            '{ text: ($title + "\n```\n" + . + "\n```") }' "${REPORT_FILE}")
+          curl -sS -X POST "${ZOHO_CLIQ_WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "${BODY}"
+
   # ─────────────────────────────────────────────────────────────────────────
   # Add future validation jobs here — they run in parallel with the above.
   # Each job should be independent and focused on a single concern.
