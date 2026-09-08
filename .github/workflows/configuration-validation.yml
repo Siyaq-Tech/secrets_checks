@@ -293,11 +293,15 @@ jobs:
 
           # Make sure the tee subshell has flushed the file before we exit,
           # otherwise the notify step below can read a truncated report.
+          
+          
+          
+          exec 1>&3 2>&4
+          exec 3>&- 4>&-
           wait "${TEE_PID}" 2>/dev/null || true
           exit "${STATUS}"
 
-            wait "${TEE_PID}" 2>/dev/null || true
-          exit "${STATUS}"
+            
 
   
 
@@ -309,31 +313,34 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           JOB_STATUS: ${{ steps.validate.outcome }}
         run: |
-          set -euo pipefail
+            set -euo pipefail
 
-          REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
+            REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
+            exec 3>&1 4>&2
+            exec > >(tee "${REPORT_FILE}") 2>&1
+            TEE_PID=$!
 
-          if [[ -z "${CLIQ_WEBHOOK_TOKEN:-}" ]]; then
+            if [[ -z "${CLIQ_WEBHOOK_TOKEN:-}" ]]; then
             echo "CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
             exit 0
-          fi
+            fi
 
-          if [[ ! -f "${REPORT_FILE}" ]]; then
+            if [[ ! -f "${REPORT_FILE}" ]]; then
             echo "No report file found — skipping Zoho notification."
             exit 0
-          fi
+            fi
 
-          WEBHOOK_URL="https://cliq.zoho.com/api/v2/bots/${CLIQ_BOT_NAME}/incoming?zapikey=${CLIQ_WEBHOOK_TOKEN}"
+            WEBHOOK_URL="https://cliq.zoho.com/api/v2/bots/${CLIQ_BOT_NAME}/incoming?zapikey=${CLIQ_WEBHOOK_TOKEN}"
 
-          ICON="✅"
-          [[ "${JOB_STATUS}" != "success" ]] && ICON="❌"
+            ICON="✅"
+            [[ "${JOB_STATUS}" != "success" ]] && ICON="❌"
 
-          TITLE="${ICON} Configuration Validation — ${ENVIRONMENT} (${GITHUB_REPOSITORY})"
+            TITLE="${ICON} Configuration Validation — ${ENVIRONMENT} (${GITHUB_REPOSITORY})"
 
-          BODY=$(jq -Rs --arg title "${TITLE}" \
+            BODY=$(jq -Rs --arg title "${TITLE}" \
             '{ text: ($title + "\n```\n" + . + "\n```") }' "${REPORT_FILE}")
 
-          curl -sS -X POST "${WEBHOOK_URL}" \
+            curl -sS -X POST "${WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"
   # ─────────────────────────────────────────────────────────────────────────
