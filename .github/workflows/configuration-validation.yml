@@ -299,7 +299,9 @@ jobs:
             wait "${TEE_PID}" 2>/dev/null || true
           exit "${STATUS}"
 
-            - name: Send report to Zoho Cliq
+  
+
+      - name: Send report to Zoho Cliq
         if: always()
         env:
           CLIQ_WEBHOOK_TOKEN: ${{ secrets.CLIQ_WEBHOOK_URL }}
@@ -334,7 +336,6 @@ jobs:
           curl -sS -X POST "${WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"
-
   # ─────────────────────────────────────────────────────────────────────────
   # Add future validation jobs here — they run in parallel with the above.
   # Each job should be independent and focused on a single concern.
