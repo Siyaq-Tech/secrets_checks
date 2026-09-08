@@ -44,7 +44,6 @@ name: Configuration Validation
 #   Keep each job focused on a single concern. See the comment at the bottom.
 # ─────────────────────────────────────────────────────────────────────────────
 
-name: Configuration Validation
 
 # ── BRANCH CONFIGURATION ──────────────────────────────────────────────────────
 # Change the branch below to control when this workflow runs.
