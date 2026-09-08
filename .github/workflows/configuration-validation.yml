@@ -70,7 +70,7 @@ jobs:
       - name: Validate secrets and variables
         env:
           ENV_EXAMPLE_PATH: '.env_example'
-          PROD_YML_PATHS:   '.github/workflows/deploy.yml'
+          PROD_YML_PATHS: '.github/workflows/deploy.yml,docker-compose.prod.yml,deployment.yaml,values-prod.yaml'
           FAIL_ON_MISSING:  'true'
           ENVIRONMENT:      'production'
           # ORG_SCANNER_PAT (repo+read:org scope) enables GitHub API secret checks.
