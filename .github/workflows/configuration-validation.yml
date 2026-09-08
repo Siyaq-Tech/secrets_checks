@@ -1,5 +1,4 @@
 name: Configuration Validation
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Reusable workflow — validates GitHub Secrets and Variables
 #
@@ -22,7 +21,7 @@ name: Configuration Validation
 #
 #   jobs:
 #     validate:
-#       uses: Taheiya-tech/checks/.github/workflows/configuration-validation.yml@main
+#       uses: org_name/checks/.github/workflows/configuration-validation.yml@main
 #       secrets: inherit
 #       permissions:
 #         contents: read
@@ -32,12 +31,6 @@ name: Configuration Validation
 #         # env-example-path: '.env_example'
 #         # prod-yml-paths: 'docker-compose.prod.yml,.github/workflows/deploy.yml'
 #         # fail-on-missing: true
-#
-# REQUIREMENTS:
-#   ORG_SCANNER_PAT — classic PAT with repo + read:org scopes.
-#   Required to list GitHub Secrets via the API (GITHUB_TOKEN cannot do this).
-#   Configure it as an org-level secret. Callers inherit it via secrets: inherit.
-#   Without it: file-consistency checks still run; GitHub API checks are skipped.
 #
 # EXTENDING:
 #   Add new jobs below validate-configuration. They run in parallel.
@@ -50,10 +43,20 @@ name: Configuration Validation
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
-  push:
-    branches:
-      - dev
-  workflow_dispatch:      # also allows manual runs from the Actions tab
+  workflow_call:
+    inputs:
+      env-example-path:
+        type: string
+        default: '.env_example'
+      prod-yml-paths:
+        type: string
+        default: 'docker-compose.yml,docker-compose.prod.yml,docker-compose.production.yml,deployment.yaml,values-prod.yaml,.github/workflows/deploy.yml'
+      fail-on-missing:
+        type: boolean
+        default: true
+      environment:
+        type: string
+        default: 'production'
 
 jobs:
   validate-configuration:
@@ -68,14 +71,11 @@ jobs:
 
       - name: Validate secrets and variables
         env:
-          ENV_EXAMPLE_PATH: '.env_example'
-          PROD_YML_PATHS: '.github/workflows/deploy.yml,docker-compose.prod.yml,deployment.yaml,values-prod.yaml'
-          FAIL_ON_MISSING:  'true'
-          ENVIRONMENT:      'production'
-          # ORG_SCANNER_PAT (repo+read:org scope) enables GitHub API secret checks.
-          # Add it under repo Settings → Secrets to activate full validation.
-          # Without it: file-consistency checks still run; API checks are skipped.
-          GH_TOKEN: ${{ secrets.ORG_SCANNER_PAT || secrets.GITHUB_TOKEN }}
+          ENV_EXAMPLE_PATH: ${{ inputs.env-example-path }}
+          PROD_YML_PATHS:   ${{ inputs.prod-yml-paths }}
+          FAIL_ON_MISSING:  ${{ inputs.fail-on-missing }}
+          ENVIRONMENT:      ${{ inputs.environment }}
+        
         run: |
           set -euo pipefail
 
