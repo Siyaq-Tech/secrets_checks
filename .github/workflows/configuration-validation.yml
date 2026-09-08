@@ -69,236 +69,224 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate secrets and variables
+            - name: Validate secrets and variables
         id: validate
         env:
           ENV_EXAMPLE_PATH: ${{ inputs.env-example-path }}
           PROD_YML_PATHS:   ${{ inputs.prod-yml-paths }}
           FAIL_ON_MISSING:  ${{ inputs.fail-on-missing }}
           ENVIRONMENT:      ${{ inputs.environment }}
-        
         run: |
           set -euo pipefail
-           # ── Capture everything this step prints, so the next step can
-          #    post the exact same report to Zoho Cliq. TEE_PID is waited
-          #    on at the very end so the file is never truncated.
-          REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
-          exec > >(tee "${REPORT_FILE}") 2>&1
-          TEE_PID=$!
 
-          FAILED=false
-          REPO="${GITHUB_REPOSITORY}"
-          ORG="${REPO%%/*}"
+          REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
           HR='────────────────────────────────────────────────────────────────'
 
-          pass()    { echo "  ✓ $*"; }
-          fail()    { echo "  ✗ $*"; FAILED=true; }
-          warn()    { echo "  ⚠  $*"; }
-          info()    { echo "  $*"; }
-          section() { echo; echo "  ── $1"; }
-          dedup()   { [[ $# -gt 0 ]] && printf '%s\n' "$@" | sort -u || true; }
-          contains() {
-            local target="$1"; shift
-            local item
-            for item; do [[ "${item}" == "${target}" ]] && return 0; done
-            return 1
-          }
+          run_checks() {
+            set -euo pipefail
 
-          echo "${HR}"
-          info "Configuration Validation — ${ENVIRONMENT}"
-          info "Repository : ${REPO}"
-          info "Branch     : ${GITHUB_REF_NAME:-unknown}"
-          echo "${HR}"
+            FAILED=false
+            REPO="${GITHUB_REPOSITORY}"
+            ORG="${REPO%%/*}"
 
-          # ── Locate .env_example ─────────────────────────────────────────────
-          ENV_FILE=""
-          for candidate in "${ENV_EXAMPLE_PATH}" ".env.example"; do
-            [[ -f "${candidate}" ]] && { ENV_FILE="${candidate}"; break; }
-          done
+            pass()    { echo "  ✓ $*"; }
+            fail()    { echo "  ✗ $*"; FAILED=true; }
+            warn()    { echo "  ⚠  $*"; }
+            info()    { echo "  $*"; }
+            section() { echo; echo "  ── $1"; }
+            dedup()   { [[ $# -gt 0 ]] && printf '%s\n' "$@" | sort -u || true; }
+            contains() {
+              local target="$1"; shift
+              local item
+              for item; do [[ "${item}" == "${target}" ]] && return 0; done
+              return 1
+            }
 
-          # ── Locate ALL matching production config files ──────────────────────
-          PROD_YMLS=()
-          IFS=',' read -ra YML_CANDIDATES <<< "${PROD_YML_PATHS}"
-          for raw in "${YML_CANDIDATES[@]}"; do
-            path="${raw//[[:space:]]/}"
-            [[ -n "${path}" && -f "${path}" ]] && PROD_YMLS+=("${path}")
-          done
+            echo "${HR}"
+            info "Configuration Validation — ${ENVIRONMENT}"
+            info "Repository : ${REPO}"
+            info "Branch     : ${GITHUB_REF_NAME:-unknown}"
+            echo "${HR}"
 
-          section "Source files"
-          [[ -n "${ENV_FILE}" ]] && info ".env_example : ${ENV_FILE}" \
-                                 || warn "No .env_example found"
-          if [[ ${#PROD_YMLS[@]} -gt 0 ]]; then
-            for yml in "${PROD_YMLS[@]}"; do info "Production   : ${yml}"; done
-          else
-            warn "No production config found"
-          fi
-
-          # ── Parse .env_example ──────────────────────────────────────────────
-          ENV_VARS=()
-          if [[ -n "${ENV_FILE}" ]]; then
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && ENV_VARS+=("${name}")
-            done < <(
-              grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${ENV_FILE}" \
-                | sed 's/=.*//' | sort -u
-            )
-          fi
-
-          # ── Parse ALL production files ──────────────────────────────────────
-          RAW_SECRETS=(); RAW_VARS=(); RAW_COMPOSE=()
-
-          for prod_file in "${PROD_YMLS[@]}"; do
-            normalized=$(tr '\n' ' ' < "${prod_file}")
-
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && RAW_SECRETS+=("${name}")
-            done < <(
-              echo "${normalized}" \
-                | grep -hoE '\$\{\{[[:space:]]*secrets\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\}\}' \
-                     2>/dev/null \
-                | sed -E 's/.*secrets\.([A-Za-z_][A-Za-z0-9_]*).*/\1/' || true
-            )
-
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && RAW_VARS+=("${name}")
-            done < <(
-              echo "${normalized}" \
-                | grep -hoE '\$\{\{[[:space:]]*vars\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\}\}' \
-                     2>/dev/null \
-                | sed -E 's/.*vars\.([A-Za-z_][A-Za-z0-9_]*).*/\1/' || true
-            )
-
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && RAW_COMPOSE+=("${name}")
-            done < <(
-              echo "${normalized}" \
-                | grep -hoE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' 2>/dev/null \
-                | sed -E 's/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/\1/' || true
-            )
-          done
-
-          SECRETS_IN_YAML=(); VARS_IN_YAML=(); COMPOSE_VARS=()
-          [[ ${#RAW_SECRETS[@]} -gt 0 ]] && \
-            mapfile -t SECRETS_IN_YAML < <(dedup "${RAW_SECRETS[@]}")
-          [[ ${#RAW_VARS[@]} -gt 0 ]] && \
-            mapfile -t VARS_IN_YAML   < <(dedup "${RAW_VARS[@]}")
-          [[ ${#RAW_COMPOSE[@]} -gt 0 ]] && \
-            mapfile -t COMPOSE_VARS   < <(dedup "${RAW_COMPOSE[@]}")
-
-          # ── Fetch configured secrets and variables from GitHub API ───────────
-          # Silent: no output or warnings when ORG_SCANNER_PAT is not available.
-          # Sections below are only shown when the API call succeeds.
-          CONFIGURED_SECRETS=()
-          API_SECRETS_OK=false
-
-          if repo_secrets=$(gh api "repos/${REPO}/actions/secrets" --paginate \
-              --jq '.secrets[].name' 2>/dev/null); then
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && CONFIGURED_SECRETS+=("${name}")
-            done < <(printf '%s\n' "${repo_secrets}" | sort -u)
-            API_SECRETS_OK=true
-          fi
-
-          if org_secrets=$(gh api "orgs/${ORG}/actions/secrets" --paginate \
-              --jq '.secrets[].name' 2>/dev/null); then
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && CONFIGURED_SECRETS+=("${name}")
-            done < <(printf '%s\n' "${org_secrets}" | sort -u)
-            API_SECRETS_OK=true
-          fi
-
-          if [[ ${#CONFIGURED_SECRETS[@]} -gt 0 ]]; then
-            mapfile -t CONFIGURED_SECRETS < <(dedup "${CONFIGURED_SECRETS[@]}")
-          fi
-
-          CONFIGURED_VARS=()
-          API_VARS_OK=false
-          if vars_out=$(gh api "repos/${REPO}/actions/variables" --paginate \
-              --jq '.variables[].name' 2>/dev/null); then
-            while IFS= read -r name; do
-              [[ -n "${name}" ]] && CONFIGURED_VARS+=("${name}")
-            done < <(printf '%s\n' "${vars_out}" | sort -u)
-            API_VARS_OK=true
-          fi
-
-          # ── Validate secrets (only when API is available) ───────────────────
-          if [[ ${#SECRETS_IN_YAML[@]} -gt 0 && "${API_SECRETS_OK}" == "true" ]]; then
-            section "Secrets — \${{ secrets.* }}"
-            for secret in "${SECRETS_IN_YAML[@]}"; do
-              if contains "${secret}" "${CONFIGURED_SECRETS[@]}"; then
-                pass "${secret}"
-              else
-                fail "${secret} — not found in GitHub Secrets"
-              fi
+            ENV_FILE=""
+            for candidate in "${ENV_EXAMPLE_PATH}" ".env.example"; do
+              [[ -f "${candidate}" ]] && { ENV_FILE="${candidate}"; break; }
             done
-          fi
 
-          # ── Validate variables (only when API is available) ─────────────────
-          if [[ ${#VARS_IN_YAML[@]} -gt 0 && "${API_VARS_OK}" == "true" ]]; then
-            section "Variables — \${{ vars.* }}"
-            for var in "${VARS_IN_YAML[@]}"; do
-              if contains "${var}" "${CONFIGURED_VARS[@]}"; then
-                pass "${var}"
-              else
-                fail "${var} — not found in GitHub Variables"
-              fi
+            PROD_YMLS=()
+            IFS=',' read -ra YML_CANDIDATES <<< "${PROD_YML_PATHS}"
+            for raw in "${YML_CANDIDATES[@]}"; do
+              path="${raw//[[:space:]]/}"
+              [[ -n "${path}" && -f "${path}" ]] && PROD_YMLS+=("${path}")
             done
-          fi
 
-          # ── Validate Docker Compose ${VAR} (only when API is available) ──────
-          if [[ ${#COMPOSE_VARS[@]} -gt 0 \
-            && ("${API_SECRETS_OK}" == "true" || "${API_VARS_OK}" == "true") ]]; then
-            section "Docker Compose — \${VAR}"
-            for var in "${COMPOSE_VARS[@]}"; do
-              if contains "${var}" "${CONFIGURED_SECRETS[@]}" \
-                || contains "${var}" "${CONFIGURED_VARS[@]}"; then
-                pass "${var}"
-              else
-                fail "${var} — not found in GitHub Secrets or Variables"
-              fi
+            section "Source files"
+            [[ -n "${ENV_FILE}" ]] && info ".env_example : ${ENV_FILE}" \
+                                   || warn "No .env_example found"
+            if [[ ${#PROD_YMLS[@]} -gt 0 ]]; then
+              for yml in "${PROD_YMLS[@]}"; do info "Production   : ${yml}"; done
+            else
+              warn "No production config found"
+            fi
+
+            ENV_VARS=()
+            if [[ -n "${ENV_FILE}" ]]; then
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && ENV_VARS+=("${name}")
+              done < <(
+                grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${ENV_FILE}" \
+                  | sed 's/=.*//' | sort -u
+              )
+            fi
+
+            RAW_SECRETS=(); RAW_VARS=(); RAW_COMPOSE=()
+
+            for prod_file in "${PROD_YMLS[@]}"; do
+              normalized=$(tr '\n' ' ' < "${prod_file}")
+
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && RAW_SECRETS+=("${name}")
+              done < <(
+                echo "${normalized}" \
+                  | grep -hoE '\$\{\{[[:space:]]*secrets\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\}\}' \
+                       2>/dev/null \
+                  | sed -E 's/.*secrets\.([A-Za-z_][A-Za-z0-9_]*).*/\1/' || true
+              )
+
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && RAW_VARS+=("${name}")
+              done < <(
+                echo "${normalized}" \
+                  | grep -hoE '\$\{\{[[:space:]]*vars\.[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\}\}' \
+                       2>/dev/null \
+                  | sed -E 's/.*vars\.([A-Za-z_][A-Za-z0-9_]*).*/\1/' || true
+              )
+
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && RAW_COMPOSE+=("${name}")
+              done < <(
+                echo "${normalized}" \
+                  | grep -hoE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' 2>/dev/null \
+                  | sed -E 's/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/\1/' || true
+              )
             done
-          fi
 
-          # ── Cross-reference: .env_example vs all production configs ─────────
-          if [[ ${#ENV_VARS[@]} -gt 0 && ${#PROD_YMLS[@]} -gt 0 ]]; then
-            ALL_REFS=()
-            for item in "${SECRETS_IN_YAML[@]}"; do ALL_REFS+=("${item}"); done
-            for item in "${VARS_IN_YAML[@]}"; do ALL_REFS+=("${item}"); done
-            for item in "${COMPOSE_VARS[@]}"; do ALL_REFS+=("${item}"); done
+            SECRETS_IN_YAML=(); VARS_IN_YAML=(); COMPOSE_VARS=()
+            [[ ${#RAW_SECRETS[@]} -gt 0 ]] && \
+              mapfile -t SECRETS_IN_YAML < <(dedup "${RAW_SECRETS[@]}")
+            [[ ${#RAW_VARS[@]} -gt 0 ]] && \
+              mapfile -t VARS_IN_YAML   < <(dedup "${RAW_VARS[@]}")
+            [[ ${#RAW_COMPOSE[@]} -gt 0 ]] && \
+              mapfile -t COMPOSE_VARS   < <(dedup "${RAW_COMPOSE[@]}")
 
-            if [[ ${#ALL_REFS[@]} -gt 0 ]]; then
-              section ".env_example coverage"
-              for var in "${ENV_VARS[@]}"; do
-                if contains "${var}" "${ALL_REFS[@]}"; then
-                  pass "${var} — referenced in production config"
+            CONFIGURED_SECRETS=()
+            API_SECRETS_OK=false
+
+            if repo_secrets=$(gh api "repos/${REPO}/actions/secrets" --paginate \
+                --jq '.secrets[].name' 2>/dev/null); then
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && CONFIGURED_SECRETS+=("${name}")
+              done < <(printf '%s\n' "${repo_secrets}" | sort -u)
+              API_SECRETS_OK=true
+            fi
+
+            if org_secrets=$(gh api "orgs/${ORG}/actions/secrets" --paginate \
+                --jq '.secrets[].name' 2>/dev/null); then
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && CONFIGURED_SECRETS+=("${name}")
+              done < <(printf '%s\n' "${org_secrets}" | sort -u)
+              API_SECRETS_OK=true
+            fi
+
+            if [[ ${#CONFIGURED_SECRETS[@]} -gt 0 ]]; then
+              mapfile -t CONFIGURED_SECRETS < <(dedup "${CONFIGURED_SECRETS[@]}")
+            fi
+
+            CONFIGURED_VARS=()
+            API_VARS_OK=false
+            if vars_out=$(gh api "repos/${REPO}/actions/variables" --paginate \
+                --jq '.variables[].name' 2>/dev/null); then
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && CONFIGURED_VARS+=("${name}")
+              done < <(printf '%s\n' "${vars_out}" | sort -u)
+              API_VARS_OK=true
+            fi
+
+            if [[ ${#SECRETS_IN_YAML[@]} -gt 0 && "${API_SECRETS_OK}" == "true" ]]; then
+              section "Secrets — \${{ secrets.* }}"
+              for secret in "${SECRETS_IN_YAML[@]}"; do
+                if contains "${secret}" "${CONFIGURED_SECRETS[@]}"; then
+                  pass "${secret}"
                 else
-                  warn "${var} — in .env_example but not in production config"
+                  fail "${secret} — not found in GitHub Secrets"
                 fi
               done
             fi
-          fi
 
-                    # ── Final result ────────────────────────────────────────────────────
-          echo
-          echo "${HR}"
-          STATUS=0
-          if [[ "${FAILED}" == "true" ]]; then
-            echo "  ✗ FAILED — required configuration is missing"
-            echo "${HR}"
-            [[ "${FAIL_ON_MISSING}" == "true" ]] && STATUS=1
-          else
-            echo "  ✓ PASSED — all required configuration is present"
-            echo "${HR}"
-          fi
+            if [[ ${#VARS_IN_YAML[@]} -gt 0 && "${API_VARS_OK}" == "true" ]]; then
+              section "Variables — \${{ vars.* }}"
+              for var in "${VARS_IN_YAML[@]}"; do
+                if contains "${var}" "${CONFIGURED_VARS[@]}"; then
+                  pass "${var}"
+                else
+                  fail "${var} — not found in GitHub Variables"
+                fi
+              done
+            fi
 
-          # Make sure the tee subshell has flushed the file before we exit,
-          # otherwise the notify step below can read a truncated report.
-          
-          
-          
-          exec 1>&3 2>&4
-          exec 3>&- 4>&-
-          wait "${TEE_PID}" 2>/dev/null || true
+            if [[ ${#COMPOSE_VARS[@]} -gt 0 \
+              && ("${API_SECRETS_OK}" == "true" || "${API_VARS_OK}" == "true") ]]; then
+              section "Docker Compose — \${VAR}"
+              for var in "${COMPOSE_VARS[@]}"; do
+                if contains "${var}" "${CONFIGURED_SECRETS[@]}" \
+                  || contains "${var}" "${CONFIGURED_VARS[@]}"; then
+                  pass "${var}"
+                else
+                  fail "${var} — not found in GitHub Secrets or Variables"
+                fi
+              done
+            fi
+
+            if [[ ${#ENV_VARS[@]} -gt 0 && ${#PROD_YMLS[@]} -gt 0 ]]; then
+              ALL_REFS=()
+              for item in "${SECRETS_IN_YAML[@]}"; do ALL_REFS+=("${item}"); done
+              for item in "${VARS_IN_YAML[@]}"; do ALL_REFS+=("${item}"); done
+              for item in "${COMPOSE_VARS[@]}"; do ALL_REFS+=("${item}"); done
+
+              if [[ ${#ALL_REFS[@]} -gt 0 ]]; then
+                section ".env_example coverage"
+                for var in "${ENV_VARS[@]}"; do
+                  if contains "${var}" "${ALL_REFS[@]}"; then
+                    pass "${var} — referenced in production config"
+                  else
+                    warn "${var} — in .env_example but not in production config"
+                  fi
+                done
+              fi
+            fi
+
+            echo
+            echo "${HR}"
+            if [[ "${FAILED}" == "true" ]]; then
+              echo "  ✗ FAILED — required configuration is missing"
+              echo "${HR}"
+              [[ "${FAIL_ON_MISSING}" == "true" ]] && return 1
+              return 0
+            else
+              echo "  ✓ PASSED — all required configuration is present"
+              echo "${HR}"
+              return 0
+            fi
+          }
+
+          set +e
+          OUTPUT="$(run_checks)"
+          STATUS=$?
+          set -e
+
+          echo "${OUTPUT}"
+          printf '%s\n' "${OUTPUT}" > "${REPORT_FILE}"
+
           exit "${STATUS}"
 
             
