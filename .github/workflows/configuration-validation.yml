@@ -69,7 +69,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-            - name: Validate secrets and variables
+      - name: Validate secrets and variables
         id: validate
         env:
           ENV_EXAMPLE_PATH: ${{ inputs.env-example-path }}
