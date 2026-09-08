@@ -304,9 +304,7 @@ jobs:
             set -euo pipefail
 
             REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
-            exec 3>&1 4>&2
-            exec > >(tee "${REPORT_FILE}") 2>&1
-            TEE_PID=$!
+
 
             if [[ -z "${CLIQ_WEBHOOK_TOKEN:-}" ]]; then
             echo "CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
