@@ -57,6 +57,21 @@ on:
       environment:
         type: string
         default: 'production'
+      gcp-project-id:
+        type: string
+        default: ''
+      gcp-workload-identity-provider:
+        type: string
+        default: ''
+      gcp-service-account:
+        type: string
+        default: ''
+      gcp-secret-name:
+        type: string
+        default: ''
+      gcp-secret-version:
+        type: string
+        default: 'latest'
 
 jobs:
   validate-configuration:
@@ -326,7 +341,181 @@ jobs:
           curl -sS -X POST "${ZOHO_CLIQ_WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"
+  validate-gcp-secret-manager:
+    name: Configuration (GCP Secret Manager)
+    if: inputs.gcp-secret-name != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ inputs.gcp-project-id }}
+          workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+          service_account: ${{ inputs.gcp-service-account }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Compare .env_example against GCP Secret Manager
+        id: validate-gcp
+        env:
+          ENV_EXAMPLE_PATH:  ${{ inputs.env-example-path }}
+          GCP_PROJECT_ID:    ${{ inputs.gcp-project-id }}
+          GCP_SECRET_NAME:   ${{ inputs.gcp-secret-name }}
+          GCP_SECRET_VERSION: ${{ inputs.gcp-secret-version }}
+          FAIL_ON_MISSING:   ${{ inputs.fail-on-missing }}
+          ENVIRONMENT:       ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+
+          REPORT_FILE="${RUNNER_TEMP}/gcp-secret-report.txt"
+          HR='────────────────────────────────────────────────────────────────'
+
+          run_checks() {
+            set -euo pipefail
+            FAILED=false
+
+            pass()    { echo "  ✓ $*"; }
+            fail()    { echo "  ✗ $*"; FAILED=true; }
+            warn()    { echo "  ⚠  $*"; }
+            info()    { echo "  $*"; }
+            section() { echo; echo "  ── $1"; }
+            contains() {
+              local target="$1"; shift
+              local item
+              for item; do [[ "${item}" == "${target}" ]] && return 0; done
+              return 1
+            }
+
+            echo "${HR}"
+            info "GCP Secret Manager Validation — ${ENVIRONMENT}"
+            info "Secret     : ${GCP_SECRET_NAME}"
+            echo "${HR}"
+
+            ENV_FILE=""
+            for candidate in "${ENV_EXAMPLE_PATH}" ".env.example"; do
+              [[ -f "${candidate}" ]] && { ENV_FILE="${candidate}"; break; }
+            done
+
+            ENV_VARS=()
+            if [[ -n "${ENV_FILE}" ]]; then
+              while IFS= read -r name; do
+                [[ -n "${name}" ]] && ENV_VARS+=("${name}")
+              done < <(
+                grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "${ENV_FILE}" \
+                  | sed 's/=.*//' | sort -u
+              )
+            fi
+
+            if [[ ${#ENV_VARS[@]} -eq 0 ]]; then
+              warn "No .env_example found — nothing to compare"
+              return 0
+            fi
+
+            # Fetch the secret's KEY names only — the value itself is
+            # never echoed, printed, or written anywhere.
+            SECRET_KEYS=()
+            while IFS= read -r name; do
+              [[ -n "${name}" ]] && SECRET_KEYS+=("${name}")
+            done < <(
+              gcloud secrets versions access "${GCP_SECRET_VERSION}" \
+                  --secret="${GCP_SECRET_NAME}" \
+                  --project="${GCP_PROJECT_ID}" \
+                | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' \
+                | sed 's/=.*//' \
+                | sort -u
+            )
+
+            if [[ ${#SECRET_KEYS[@]} -eq 0 ]]; then
+              fail "Could not read any KEY= lines from '${GCP_SECRET_NAME}' — check access or format"
+              echo; echo "${HR}"
+              [[ "${FAIL_ON_MISSING}" == "true" ]] && return 1
+              return 0
+            fi
+
+            section "GCP Secret Manager coverage (${GCP_SECRET_NAME})"
+            for var in "${ENV_VARS[@]}"; do
+              if contains "${var}" "${SECRET_KEYS[@]}"; then
+                pass "${var} — present in GCP secret"
+              else
+                fail "${var} — in .env_example but MISSING from GCP secret"
+              fi
+            done
+
+            section "Undocumented keys (in secret, not in .env_example)"
+            UNDOCUMENTED=0
+            for var in "${SECRET_KEYS[@]}"; do
+              if ! contains "${var}" "${ENV_VARS[@]}"; then
+                warn "${var} — in GCP secret but not in .env_example"
+                UNDOCUMENTED=$((UNDOCUMENTED+1))
+              fi
+            done
+            [[ "${UNDOCUMENTED}" -eq 0 ]] && info "None — every secret key is documented"
+
+            echo; echo "${HR}"
+            if [[ "${FAILED}" == "true" ]]; then
+              echo "  ✗ FAILED — .env_example references keys missing from GCP Secret Manager"
+              echo "${HR}"
+              [[ "${FAIL_ON_MISSING}" == "true" ]] && return 1
+              return 0
+            else
+              echo "  ✓ PASSED — every .env_example key exists in GCP Secret Manager"
+              echo "${HR}"
+              return 0
+            fi
+          }
+
+          set +e
+          OUTPUT="$(run_checks)"
+          STATUS=$?
+          set -e
+
+          echo "${OUTPUT}"
+          printf '%s\n' "${OUTPUT}" > "${REPORT_FILE}"
+          exit "${STATUS}"
+
+      - name: Send report to Zoho Cliq
+        if: always()
+        env:
+          CLIQ_WEBHOOK_TOKEN: ${{ secrets.CLIQ_WEBHOOK_URL }}
+          CLIQ_BOT_NAME: "secretcheck"
+          ENVIRONMENT: ${{ inputs.environment }}
+          JOB_STATUS: ${{ steps.validate-gcp.outcome }}
+          GCP_SECRET_NAME: ${{ inputs.gcp-secret-name }}
+        run: |
+          set -euo pipefail
+          REPORT_FILE="${RUNNER_TEMP}/gcp-secret-report.txt"
+
+          if [[ -z "${CLIQ_WEBHOOK_TOKEN:-}" ]]; then
+            echo "CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
+            exit 0
+          fi
+          if [[ ! -f "${REPORT_FILE}" ]]; then
+            echo "No report file found — skipping Zoho notification."
+            exit 0
+          fi
+
+          WEBHOOK_URL="https://cliq.zoho.com/api/v2/bots/${CLIQ_BOT_NAME}/incoming?zapikey=${CLIQ_WEBHOOK_TOKEN}"
+
+          ICON="✅"
+          [[ "${JOB_STATUS}" != "success" ]] && ICON="❌"
+
+          TITLE="${ICON} GCP Secret Manager Check — ${ENVIRONMENT} (${GITHUB_REPOSITORY} · ${GCP_SECRET_NAME})"
+
+          BODY=$(jq -Rs --arg title "${TITLE}" \
+            '{ text: ($title + "\n```\n" + . + "\n```") }' "${REPORT_FILE}")
+
+          curl -sS -X POST "${WEBHOOK_URL}" \
+            -H "Content-Type: application/json" \
+            -d "${BODY}"
   # ─────────────────────────────────────────────────────────────────────────
   # Add future validation jobs here — they run in parallel with the above.
   # Each job should be independent and focused on a single concern.
