@@ -366,17 +366,19 @@ jobs:
       - name: Compare .env_example against GCP Secret Manager
         id: validate-gcp
         env:
-          ENV_EXAMPLE_PATH:  ${{ inputs.env-example-path }}
-          GCP_PROJECT_ID:    ${{ inputs.gcp-project-id }}
-          GCP_SECRET_NAME:   ${{ inputs.gcp-secret-name }}
-          GCP_SECRET_VERSION: ${{ inputs.gcp-secret-version }}
-          FAIL_ON_MISSING:   ${{ inputs.fail-on-missing }}
-          ENVIRONMENT:       ${{ inputs.environment }}
+          ENV_EXAMPLE_PATH:    ${{ inputs.env-example-path }}
+          GCP_PROJECT_ID:      ${{ inputs.gcp-project-id }}
+          GCP_SECRET_NAME:     ${{ inputs.gcp-secret-name }}
+          GCP_SECRET_VERSION:  ${{ inputs.gcp-secret-version }}
+          GCP_SERVICE_ACCOUNT: ${{ inputs.gcp-service-account }}
+          FAIL_ON_MISSING:     ${{ inputs.fail-on-missing }}
+          ENVIRONMENT:         ${{ inputs.environment }}
         run: |
           set -euo pipefail
 
           REPORT_FILE="${RUNNER_TEMP}/gcp-secret-report.txt"
           HR='────────────────────────────────────────────────────────────────'
+          TYPO_THRESHOLD=2   # max edit distance still considered "probably a typo"
 
           run_checks() {
             set -euo pipefail
@@ -392,6 +394,66 @@ jobs:
               local item
               for item; do [[ "${item}" == "${target}" ]] && return 0; done
               return 1
+            }
+
+            # Pure-bash edit distance — good enough for short env-var names.
+            levenshtein() {
+              local str1="$1" str2="$2"
+              local len1=${#str1} len2=${#str2}
+              local -A d
+              local i j cost
+
+              for ((i = 0; i <= len1; i++)); do d[$i,0]=$i; done
+              for ((j = 0; j <= len2; j++)); do d[0,$j]=$j; done
+
+              for ((i = 1; i <= len1; i++)); do
+                for ((j = 1; j <= len2; j++)); do
+                  [[ "${str1:i-1:1}" == "${str2:j-1:1}" ]] && cost=0 || cost=1
+                  local del=$(( d[$((i-1)),$j] + 1 ))
+                  local ins=$(( d[$i,$((j-1))] + 1 ))
+                  local sub=$(( d[$((i-1)),$((j-1))] + cost ))
+                  local min=$del
+                  (( ins < min )) && min=$ins
+                  (( sub < min )) && min=$sub
+                  d[$i,$j]=$min
+                done
+              done
+              echo "${d[$len1,$len2]}"
+            }
+
+            # Explains WHY a key looks missing/undocumented — case mismatch,
+            # probable typo (with its closest match), or genuinely absent.
+            diagnose() {
+              local target="$1"; local pool_label="$2"; shift 2
+              local -a pool=("$@")
+              local candidate best="" best_dist=999 dist
+
+              if [[ ${#pool[@]} -eq 0 ]]; then
+                echo "no similar key found — looks like it was never added"
+                return
+              fi
+
+              for candidate in "${pool[@]}"; do
+                if [[ "${candidate,,}" == "${target,,}" ]]; then
+                  echo "case mismatch — ${pool_label} has '${candidate}' instead"
+                  return
+                fi
+              done
+
+              for candidate in "${pool[@]}"; do
+                dist=$(levenshtein "${target}" "${candidate}")
+                if (( dist < best_dist )); then
+                  best_dist=$dist
+                  best="${candidate}"
+                fi
+              done
+
+              if [[ "${best_dist}" -le "${TYPO_THRESHOLD}" ]]; then
+                local plural="s"; [[ "${best_dist}" -eq 1 ]] && plural=""
+                echo "possible typo — closest match in ${pool_label} is '${best}' (${best_dist} character${plural} different)"
+              else
+                echo "no similar key found — looks like it was never added"
+              fi
             }
 
             echo "${HR}"
@@ -419,8 +481,7 @@ jobs:
               return 0
             fi
 
-            # Fetch the secret's KEY names only — the value itself is
-            # never echoed, printed, or written anywhere.
+            # Key names only — the value itself is never echoed or stored.
             SECRET_KEYS=()
             while IFS= read -r name; do
               [[ -n "${name}" ]] && SECRET_KEYS+=("${name}")
@@ -434,30 +495,46 @@ jobs:
             )
 
             if [[ ${#SECRET_KEYS[@]} -eq 0 ]]; then
-              fail "Could not read any KEY= lines from '${GCP_SECRET_NAME}' — check access or format"
+              fail "Could not read any KEY= lines from '${GCP_SECRET_NAME}'"
+              section "Possible causes"
+              info "• The secret name '${GCP_SECRET_NAME}' doesn't exist in project '${GCP_PROJECT_ID}' — check for a typo in the gcp-secret-name input"
+              info "• '${GCP_SERVICE_ACCOUNT:-the service account}' lacks Secret Manager Secret Accessor on this secret"
+              info "• The secret exists but every version is disabled or destroyed"
+              info "• The secret's content isn't in KEY=VALUE line format, or is empty"
               echo; echo "${HR}"
               [[ "${FAIL_ON_MISSING}" == "true" ]] && return 1
               return 0
             fi
+
+            MISSING_KEYS=()
+            for var in "${ENV_VARS[@]}"; do
+              contains "${var}" "${SECRET_KEYS[@]}" || MISSING_KEYS+=("${var}")
+            done
+
+            UNDOCUMENTED_KEYS=()
+            for var in "${SECRET_KEYS[@]}"; do
+              contains "${var}" "${ENV_VARS[@]}" || UNDOCUMENTED_KEYS+=("${var}")
+            done
 
             section "GCP Secret Manager coverage (${GCP_SECRET_NAME})"
             for var in "${ENV_VARS[@]}"; do
               if contains "${var}" "${SECRET_KEYS[@]}"; then
                 pass "${var} — present in GCP secret"
               else
-                fail "${var} — in .env_example but MISSING from GCP secret"
+                reason=$(diagnose "${var}" "the secret" "${UNDOCUMENTED_KEYS[@]}")
+                fail "${var} — in .env_example but MISSING from GCP secret (${reason})"
               fi
             done
 
             section "Undocumented keys (in secret, not in .env_example)"
-            UNDOCUMENTED=0
-            for var in "${SECRET_KEYS[@]}"; do
-              if ! contains "${var}" "${ENV_VARS[@]}"; then
-                warn "${var} — in GCP secret but not in .env_example"
-                UNDOCUMENTED=$((UNDOCUMENTED+1))
-              fi
-            done
-            [[ "${UNDOCUMENTED}" -eq 0 ]] && info "None — every secret key is documented"
+            if [[ ${#UNDOCUMENTED_KEYS[@]} -eq 0 ]]; then
+              info "None — every secret key is documented"
+            else
+              for var in "${UNDOCUMENTED_KEYS[@]}"; do
+                reason=$(diagnose "${var}" ".env_example" "${MISSING_KEYS[@]}")
+                warn "${var} — in GCP secret but not in .env_example (${reason})"
+              done
+            fi
 
             echo; echo "${HR}"
             if [[ "${FAILED}" == "true" ]]; then
@@ -480,6 +557,7 @@ jobs:
           echo "${OUTPUT}"
           printf '%s\n' "${OUTPUT}" > "${REPORT_FILE}"
           exit "${STATUS}"
+
 
       - name: Send report to Zoho Cliq
         if: always()
