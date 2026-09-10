@@ -311,8 +311,7 @@ jobs:
           wait "${TEE_PID}" 2>/dev/null || true
           exit "${STATUS}"
 
-            wait "${TEE_PID}" 2>/dev/null || true
-          exit "${STATUS}"
+        
 
       - name: Send report to Zoho Cliq
         if: always()
@@ -488,12 +487,10 @@ jobs:
           CLIQ_WEBHOOK_TOKEN: ${{ secrets.CLIQ_WEBHOOK_URL }}
           CLIQ_BOT_NAME: "secretcheck"
           ENVIRONMENT: ${{ inputs.environment }}
-          JOB_STATUS: ${{ steps.validate-gcp.outcome }}
-          GCP_SECRET_NAME: ${{ inputs.gcp-secret-name }}
+          JOB_STATUS: ${{ steps.validate.outcome }}
         run: |
           set -euo pipefail
-          REPORT_FILE="${RUNNER_TEMP}/gcp-secret-report.txt"
-
+          REPORT_FILE="${RUNNER_TEMP}/validation-report.txt"
           if [[ -z "${CLIQ_WEBHOOK_TOKEN:-}" ]]; then
             echo "CLIQ_WEBHOOK_URL secret not set — skipping Zoho notification."
             exit 0
@@ -502,17 +499,12 @@ jobs:
             echo "No report file found — skipping Zoho notification."
             exit 0
           fi
-
           WEBHOOK_URL="https://cliq.zoho.com/api/v2/bots/${CLIQ_BOT_NAME}/incoming?zapikey=${CLIQ_WEBHOOK_TOKEN}"
-
           ICON="✅"
           [[ "${JOB_STATUS}" != "success" ]] && ICON="❌"
-
-          TITLE="${ICON} GCP Secret Manager Check — ${ENVIRONMENT} (${GITHUB_REPOSITORY} · ${GCP_SECRET_NAME})"
-
+          TITLE="${ICON} Configuration Validation — ${ENVIRONMENT} (${GITHUB_REPOSITORY})"
           BODY=$(jq -Rs --arg title "${TITLE}" \
             '{ text: ($title + "\n```\n" + . + "\n```") }' "${REPORT_FILE}")
-
           curl -sS -X POST "${WEBHOOK_URL}" \
             -H "Content-Type: application/json" \
             -d "${BODY}"
