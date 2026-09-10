@@ -1,0 +1,100 @@
+name: Configuration Validation
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  CONFIGURATION VALIDATION — SETUP GUIDE
+#
+#  Drop this file into .github/workflows/ in any backend or frontend repo.
+#  Walk through STEP 1 to STEP 5 below in order.
+#
+#  Only STEP 1 is required. Everything else is optional — any block you
+#  leave blank or commented out is skipped automatically. No errors, no
+#  broken pipeline, it just won't run that particular check.
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  push:
+    branches:
+      - main              # STEP 1 (required) — set this to your target branch
+                           # other examples:
+                           #   branches: [dev]
+                           #   branches: [main, staging]
+                           #   branches: ['release/**']
+  workflow_dispatch:        # lets you trigger a run manually from the Actions
+                             # tab — use this while setting up, so you don't
+                             # have to push a real commit just to test
+
+jobs:
+  validate:
+    # STEP 1 (continued, required) — which version of the shared workflow to use.
+    # Pin this to a released tag (e.g. @v1) rather than @main once one exists,
+    # so a future change upstream can't silently break your pipeline. Ask
+    # whoever maintains secrets_checks which tag is current.
+    uses: Siyaq-Tech/secrets_checks/.github/workflows/configuration-validation.yml@main
+
+    secrets: inherit
+
+    permissions:
+      contents: read
+      id-token: write     # required even if you're skipping the GCP check —
+                           # a job can never grant itself more access than its
+                           # caller allows, so this has to be here for the
+                           # GCP authentication step to work at all
+
+    with:
+      # ── STEP 1 (continued, required) ────────────────────────────────────
+      environment: production   # just a label — shown in the Actions log and
+                                 # in the Cliq notification, doesn't change behavior
+
+      # ── STEP 2 (optional) — non-standard repo layout ────────────────────
+      # Only uncomment these if your .env_example or production config files
+      # live somewhere other than the defaults already built into the check.
+      #
+      # env-example-path: '.env_example'
+      #
+      # prod-yml-paths: >-
+      #   docker-compose.prod.yml,
+      #   deployment.yaml,
+      #   .github/workflows/deploy.yml
+      #
+      # fail-on-missing: true   # false = report only, never fail the build
+
+      # ── STEP 3 (optional) — compare against GCP Secret Manager ──────────
+      # Leave ALL FOUR of these blank (or delete the lines) to skip this
+      # check entirely. Nothing else needs to change if you do.
+      #
+      # Where to find each value: open your OWN repo's deploy workflow
+      # (e.g. .github/workflows/*-dev-deployment.yml) and copy these
+      # straight out of its `env:` block. They're already set up and
+      # working there — this just reuses that same identity to read the
+      # secret instead of deploy with it.
+      #
+      # gcp-project-id:                 ''   # ← same as GCP_PROJECT_ID
+      # gcp-workload-identity-provider: ''   # ← same as GCP_WORKLOAD_IDENTITY_PROVIDER
+      # gcp-service-account:            ''   # ← same as GCP_SERVICE_ACCOUNT
+      # gcp-secret-name:                ''   # ← same as GCP_SECRET_ENV_NAME
+                                              #    (e.g. RCP-SIYAQ-BACKEND-DEV)
+      # gcp-secret-version:             'latest'   # only change this if you
+                                                    # deliberately pin a version
+
+      # ── STEP 4 (optional) — post results to Zoho Cliq ───────────────────
+      # Leave this blank to skip notifications entirely. The check still
+      # runs and shows pass/fail in the Actions tab either way — this only
+      # controls whether a message also gets posted to chat.
+      #
+      #   1. In Zoho Cliq, open your bot → enable Incoming Webhook → copy
+      #      the URL. It looks like:
+      #      https://cliq.zoho.com/api/v2/bots/<bot_unique_name>/incoming?zapikey=<token>
+      #   2. Add the <token> part as a repo secret named CLIQ_WEBHOOK_URL
+      #      (Settings → Secrets and variables → Actions → New repository secret)
+      #   3. Put the <bot_unique_name> part here:
+      #
+      # cliq-bot-name: ''
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  STEP 5 — test it
+#
+#  Push this file, or click "Run workflow" under the repo's Actions tab
+#  (that's what workflow_dispatch above enables — no need to wait for a
+#  real push). Check the job output, and your Cliq channel if you set up
+#  STEP 4.
+# ═══════════════════════════════════════════════════════════════════════════
