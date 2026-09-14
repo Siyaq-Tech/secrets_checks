@@ -1,5 +1,5 @@
 export default function Home() {
-  const installUrl = "https://github.com/apps/secret-check/installations/new";
+  const installUrl = "https://github.com/apps/secret-check/installations/new"; 
 
   return (
     <main style={{ padding: 48, fontFamily: "sans-serif", maxWidth: 560 }}>
