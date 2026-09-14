@@ -8,7 +8,11 @@ export const githubApp = new App({
   oauth: {
     clientId: process.env.GITHUB_APP_CLIENT_ID!,
     clientSecret: process.env.GITHUB_APP_CLIENT_SECRET!,
+<<<<<<< HEAD
   },
+=======
+  }
+>>>>>>> b19c1c5 (fix: remove unused github webhook configuration)
 });
 
 // Every call to this issues a short-lived (~1hr) installation token —
