@@ -1,0 +1,12 @@
+{
+  "/api/generate-yaml/route": "/api/generate-yaml",
+  "/api/github/callback/route": "/api/github/callback",
+  "/api/notification-channels/route": "/api/notification-channels",
+  "/api/report/route": "/api/report",
+  "/api/repos/route": "/api/repos",
+  "/_not-found/page": "/_not-found",
+  "/connect/page": "/connect",
+  "/page": "/",
+  "/notifications/page": "/notifications",
+  "/dashboard/page": "/dashboard"
+}

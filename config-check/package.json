@@ -10,20 +10,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "^15.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@octokit/app": "^15.0.0",
     "@octokit/rest": "^21.0.0",
     "@prisma/client": "^5.17.0",
-    "libsodium-wrappers": "^0.7.13"
+    "libsodium-wrappers": "^0.7.13",
+    "libsodium-wrappers-sumo": "^0.8.4",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
+    "@types/libsodium-wrappers": "^0.7.13",
     "@types/node": "^20.14.0",
     "@types/react": "^19.0.0",
-    "@types/libsodium-wrappers": "^0.7.13",
-    "prisma": "^5.17.0"
+    "prisma": "^5.17.0",
+    "typescript": "^5.5.4"
   },
   "engines": {
     "node": "24.x"
