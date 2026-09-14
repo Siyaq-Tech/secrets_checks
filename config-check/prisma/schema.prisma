@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// One row per org/user that installed the GitHub App.
+model Installation {
+  id                   String          @id @default(cuid())
+  githubInstallationId Int             @unique
+  accountLogin         String
+  accountType          String
+  createdAt            DateTime        @default(now())
+  repos                ConnectedRepo[]
+}
+
+// One row per repo that's had the workflow installed via the UI.
+// `apiToken` is what the customer's own GitHub Action authenticates
+// with when it POSTs a report back — it never sees the GitHub App
+// credentials, only this one per-repo token.
+model ConnectedRepo {
+  id                   String                 @id @default(cuid())
+  installation         Installation           @relation(fields: [installationId], references: [id])
+  installationId       String
+  repoFullName         String                 @unique
+  apiToken             String                 @unique
+  config               Json
+  createdAt            DateTime               @default(now())
+  reports              Report[]
+  notificationChannels NotificationChannel[]
+}
+
+// One row per check run. `reportText` is the same redacted, key-names-only
+// report that gets fanned out to whatever NotificationChannels are
+// configured for this repo — no secret values, ever.
+model Report {
+  id         String        @id @default(cuid())
+  repo       ConnectedRepo @relation(fields: [repoId], references: [id])
+  repoId     String
+  jobName    String
+  status     String
+  reportText String        @db.Text
+  receivedAt DateTime      @default(now())
+}
+
+// One row per notification destination attached to a repo. `config`'s
+// shape depends on `type` — see lib/notify.ts for what each expects.
+model NotificationChannel {
+  id        String        @id @default(cuid())
+  repo      ConnectedRepo @relation(fields: [repoId], references: [id])
+  repoId    String
+  type      String        // "zoho_cliq" | "webhook" | "email" | "whatsapp"
+  config    Json
+  enabled   Boolean       @default(true)
+  createdAt DateTime      @default(now())
+}

@@ -1,0 +1,28 @@
+{
+  "name": "config-check",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "postinstall": "prisma generate",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.3.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@octokit/app": "^15.0.0",
+    "@octokit/rest": "^21.0.0",
+    "@prisma/client": "^5.17.0",
+    "libsodium-wrappers": "^0.7.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.14.0",
+    "@types/react": "^19.0.0",
+    "@types/libsodium-wrappers": "^0.7.13",
+    "prisma": "^5.17.0"
+  }
+}
