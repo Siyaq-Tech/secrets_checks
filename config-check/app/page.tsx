@@ -1,6 +1,5 @@
 export default function Home() {
-  const slug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
-  const installUrl = `https://github.com/apps/${slug}/installations/new`;
+const installUrl = "https://github.com/apps/secret-check/installations/new";
 
   return (
     <main style={{ padding: 48, fontFamily: "sans-serif", maxWidth: 560 }}>
