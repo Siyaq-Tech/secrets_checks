@@ -9,9 +9,6 @@ export const githubApp = new App({
     clientId: process.env.GITHUB_APP_CLIENT_ID!,
     clientSecret: process.env.GITHUB_APP_CLIENT_SECRET!,
   },
-  webhooks: {
-    secret: process.env.GITHUB_APP_WEBHOOK_SECRET!,
-  },
 });
 
 // Every call to this issues a short-lived (~1hr) installation token —
