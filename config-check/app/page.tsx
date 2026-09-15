@@ -10,7 +10,7 @@ export default function Home({
     <main style={{ padding: 48, fontFamily: "sans-serif", maxWidth: 560 }}>
       <h1>Config Check</h1>
       <p>
-        Catch a missing environment variable before it breaks a deploy — the
+        Catch a missing environment variable before it breaks a deploy - the
         check runs inside your own GitHub Actions and GCP project. We never
         see your secrets, only pass/fail results.
       </p>
@@ -43,8 +43,8 @@ export default function Home({
           borderRadius: 6,
           textDecoration: "none",
         }}
-      >
-        Connect GitHub →
+      
+        Connect GitHub -&gt;
       </a>
     </main>
   );
