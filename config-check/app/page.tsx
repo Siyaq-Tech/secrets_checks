@@ -32,7 +32,7 @@ export default function Home({
         </div>
       )}
 
-      
+      <a
         href={installUrl}
         style={{
           display: "inline-block",
@@ -43,7 +43,7 @@ export default function Home({
           borderRadius: 6,
           textDecoration: "none",
         }}
-      
+      >
         Connect GitHub -&gt;
       </a>
     </main>
