@@ -1,4 +1,4 @@
-export default function Home({
+export default async function Home({
   searchParams,
 }: {
   searchParams: { error?: string; detail?: string };
