@@ -1,8 +1,9 @@
 export default async function Home({
   searchParams,
 }: {
-  searchParams: { error?: string; detail?: string };
+  searchParams: Promise<{ error?: string; detail?: string }>;
 }) {
+  const params = await searchParams;
   const slug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
   const installUrl = `https://github.com/apps/${slug}/installations/new`;
 
@@ -15,7 +16,7 @@ export default async function Home({
         see your secrets, only pass/fail results.
       </p>
 
-      {searchParams.error && (
+      {params.error && (
         <div
           style={{
             marginTop: 16,
@@ -27,8 +28,8 @@ export default async function Home({
             color: "#f2a5a5",
           }}
         >
-          <strong>Connection failed:</strong> {searchParams.error}
-          {searchParams.detail && <div style={{ marginTop: 4, opacity: 0.85 }}>{searchParams.detail}</div>}
+          <strong>Connection failed:</strong> {params.error}
+          {params.detail && <div style={{ marginTop: 4, opacity: 0.85 }}>{params.detail}</div>}
         </div>
       )}
 
