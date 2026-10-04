@@ -6,10 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "postinstall": "prisma generate",
-    "typecheck": "tsc --noEmit" , 
+    "typecheck": "tsc --noEmit" ,
+    "postinstall": "prisma generate"
+},
     
-  },
+
   "dependencies": {
     "@octokit/app": "^15.0.0",
     "@octokit/rest": "^21.0.0",
