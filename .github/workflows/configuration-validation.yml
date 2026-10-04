@@ -57,6 +57,9 @@ on:
       environment:
         type: string
         default: 'production'
+      platform-report-url:
+        type: string
+        default: ''
       gcp-project-id:
         type: string
         default: ''
