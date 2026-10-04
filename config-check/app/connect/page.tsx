@@ -21,7 +21,6 @@ export default function Connect() {
   const [gcpProjectId, setGcpProjectId] = useState("");
   const [gcpWip, setGcpWip] = useState("");
   const [gcpServiceAccount, setGcpServiceAccount] = useState("");
-  const [gcpSecretName, setGcpSecretName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,6 +37,11 @@ export default function Connect() {
 
   async function submit() {
     setSaving(true);
+    const gcpFilled = [gcpProjectId, gcpWip, gcpServiceAccount].filter(Boolean).length;
+    if (gcpFilled > 0 && gcpFilled < 3) {
+      setStatus("Fill project id, workload identity provider and service account together.");
+      return;
+}
     setStatus(null);
     try {
       const res = await fetch("/api/generate-yaml", {
@@ -50,8 +54,8 @@ export default function Connect() {
             envExamplePath,
             gcpProjectId,
             gcpWip,
-            gcpServiceAccount,
-            gcpSecretName,
+            gcpServiceAccount
+        
           },
         }),
       });
@@ -85,6 +89,9 @@ export default function Connect() {
       />
 
       <h3>GCP Secret Manager (optional)</h3>
+<p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
+  Ask your GCP admin for these. The check lists the secret names in this project and compares them with your .env_example. It never reads secret values.
+</p>
       <input
         placeholder="GCP project id"
         value={gcpProjectId}
@@ -101,12 +108,6 @@ export default function Connect() {
         placeholder="Service account"
         value={gcpServiceAccount}
         onChange={(e) => setGcpServiceAccount(e.target.value)}
-        style={inputStyle}
-      />
-      <input
-        placeholder="Secret name"
-        value={gcpSecretName}
-        onChange={(e) => setGcpSecretName(e.target.value)}
         style={inputStyle}
       />
 
